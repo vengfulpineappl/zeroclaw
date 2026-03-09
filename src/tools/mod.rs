@@ -45,6 +45,7 @@ pub mod mcp_deferred;
 pub mod mcp_protocol;
 pub mod mcp_tool;
 pub mod mcp_transport;
+pub mod microsoft365;
 pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;
@@ -89,6 +90,7 @@ pub use image_info::ImageInfoTool;
 pub use mcp_client::McpRegistry;
 pub use mcp_deferred::{ActivatedToolSet, DeferredMcpToolSet};
 pub use mcp_tool::McpToolWrapper;
+pub use microsoft365::Microsoft365Tool;
 pub use memory_forget::MemoryForgetTool;
 pub use memory_recall::MemoryRecallTool;
 pub use memory_store::MemoryStoreTool;
@@ -353,6 +355,47 @@ pub fn all_tools_with_runtime(
                 composio_entity_id,
                 security.clone(),
             )));
+        }
+    }
+
+    // Microsoft 365 Graph API integration
+    if root_config.microsoft365.enabled {
+        let ms_cfg = &root_config.microsoft365;
+        let tenant_id = ms_cfg
+            .tenant_id
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let client_id = ms_cfg
+            .client_id
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if !tenant_id.is_empty() && !client_id.is_empty() {
+            let resolved = microsoft365::types::Microsoft365ResolvedConfig {
+                tenant_id,
+                client_id,
+                client_secret: ms_cfg.client_secret.clone(),
+                auth_flow: ms_cfg.auth_flow.clone(),
+                scopes: ms_cfg.scopes.clone(),
+                token_cache_encrypted: ms_cfg.token_cache_encrypted,
+                user_id: ms_cfg
+                    .user_id
+                    .as_deref()
+                    .unwrap_or("me")
+                    .to_string(),
+            };
+            tool_arcs.push(Arc::new(Microsoft365Tool::new(
+                resolved,
+                security.clone(),
+                workspace_dir,
+            )));
+        } else {
+            tracing::warn!(
+                "microsoft365: skipped registration because tenant_id or client_id is empty"
+            );
         }
     }
 
