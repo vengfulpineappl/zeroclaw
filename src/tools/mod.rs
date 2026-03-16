@@ -50,14 +50,19 @@ pub mod mcp_transport;
 pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;
+pub mod microsoft365;
 pub mod model_routing_config;
 pub mod node_tool;
+pub mod notion_tool;
 pub mod pdf_read;
+pub mod project_intel;
 pub mod proxy_config;
 pub mod pushover;
+pub mod report_templates;
 pub mod schedule;
 pub mod schema;
 pub mod screenshot;
+pub mod security_ops;
 pub mod shell;
 pub mod swarm;
 pub mod tool_search;
@@ -98,16 +103,20 @@ pub use mcp_tool::McpToolWrapper;
 pub use memory_forget::MemoryForgetTool;
 pub use memory_recall::MemoryRecallTool;
 pub use memory_store::MemoryStoreTool;
+pub use microsoft365::Microsoft365Tool;
 pub use model_routing_config::ModelRoutingConfigTool;
 #[allow(unused_imports)]
 pub use node_tool::NodeTool;
+pub use notion_tool::NotionTool;
 pub use pdf_read::PdfReadTool;
+pub use project_intel::ProjectIntelTool;
 pub use proxy_config::ProxyConfigTool;
 pub use pushover::PushoverTool;
 pub use schedule::ScheduleTool;
 #[allow(unused_imports)]
 pub use schema::{CleaningStrategy, SchemaCleanr};
 pub use screenshot::ScreenshotTool;
+pub use security_ops::SecurityOpsTool;
 pub use shell::ShellTool;
 pub use swarm::SwarmTool;
 pub use tool_search::ToolSearchTool;
@@ -348,8 +357,36 @@ pub fn all_tools_with_runtime(
         )));
     }
 
-    // PDF extraction (feature-gated at compile time via rag-pdf)
-    tool_arcs.push(Arc::new(PdfReadTool::new(security.clone())));
+    // Notion API tool (conditionally registered)
+    if root_config.notion.enabled {
+        let notion_api_key = if root_config.notion.api_key.trim().is_empty() {
+            std::env::var("NOTION_API_KEY").unwrap_or_default()
+        } else {
+            root_config.notion.api_key.trim().to_string()
+        };
+        if notion_api_key.trim().is_empty() {
+            tracing::warn!(
+                "Notion tool enabled but no API key found (set notion.api_key or NOTION_API_KEY env var)"
+            );
+        } else {
+            tool_arcs.push(Arc::new(NotionTool::new(notion_api_key, security.clone())));
+        }
+    }
+
+    // Project delivery intelligence
+    if root_config.project_intel.enabled {
+        tool_arcs.push(Arc::new(ProjectIntelTool::new(
+            root_config.project_intel.default_language.clone(),
+            root_config.project_intel.risk_sensitivity.clone(),
+        )));
+    }
+
+    // MCSS Security Operations
+    if root_config.security_ops.enabled {
+        tool_arcs.push(Arc::new(SecurityOpsTool::new(
+            root_config.security_ops.clone(),
+        )));
+    }
 
     // Backup tool (enabled by default)
     if root_config.backup.enabled {
@@ -368,6 +405,9 @@ pub fn all_tools_with_runtime(
         )));
     }
 
+    // PDF extraction (feature-gated at compile time via rag-pdf)
+    tool_arcs.push(Arc::new(PdfReadTool::new(security.clone())));
+
     // Vision tools are always available
     tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
     tool_arcs.push(Arc::new(ImageInfoTool::new(security.clone())));
@@ -379,6 +419,61 @@ pub fn all_tools_with_runtime(
                 composio_entity_id,
                 security.clone(),
             )));
+        }
+    }
+
+    // Microsoft 365 Graph API integration
+    if root_config.microsoft365.enabled {
+        let ms_cfg = &root_config.microsoft365;
+        let tenant_id = ms_cfg
+            .tenant_id
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let client_id = ms_cfg
+            .client_id
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if !tenant_id.is_empty() && !client_id.is_empty() {
+            // Fail fast: client_credentials flow requires a client_secret at registration time.
+            if ms_cfg.auth_flow.trim() == "client_credentials"
+                && ms_cfg
+                    .client_secret
+                    .as_deref()
+                    .map_or(true, |s| s.trim().is_empty())
+            {
+                tracing::error!(
+                    "microsoft365: client_credentials auth_flow requires a non-empty client_secret"
+                );
+                return (boxed_registry_from_arcs(tool_arcs), None);
+            }
+
+            let resolved = microsoft365::types::Microsoft365ResolvedConfig {
+                tenant_id,
+                client_id,
+                client_secret: ms_cfg.client_secret.clone(),
+                auth_flow: ms_cfg.auth_flow.clone(),
+                scopes: ms_cfg.scopes.clone(),
+                token_cache_encrypted: ms_cfg.token_cache_encrypted,
+                user_id: ms_cfg.user_id.as_deref().unwrap_or("me").to_string(),
+            };
+            // Store token cache in the config directory (next to config.toml),
+            // not the workspace directory, to keep bearer tokens out of the
+            // project tree.
+            let cache_dir = root_config.config_path.parent().unwrap_or(workspace_dir);
+            match Microsoft365Tool::new(resolved, security.clone(), cache_dir) {
+                Ok(tool) => tool_arcs.push(Arc::new(tool)),
+                Err(e) => {
+                    tracing::error!("microsoft365: failed to initialize tool: {e}");
+                }
+            }
+        } else {
+            tracing::warn!(
+                "microsoft365: skipped registration because tenant_id or client_id is empty"
+            );
         }
     }
 
