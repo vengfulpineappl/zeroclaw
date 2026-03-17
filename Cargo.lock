@@ -7981,6 +7981,7 @@ version = "0.5.0"
 dependencies = [
  "anyhow",
  "async-imap",
+ "async-stream",
  "async-trait",
  "axum",
  "base64",

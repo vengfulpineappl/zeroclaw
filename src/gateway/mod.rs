@@ -816,20 +816,17 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
             post(api_pairing::rotate_token),
         )
         // ── Control Plane API ──
+        .route("/api/nodes", get(api_control_plane::list_nodes))
         .route(
-            "/api/control-plane/nodes",
-            get(api_control_plane::list_nodes),
-        )
-        .route(
-            "/api/control-plane/nodes",
+            "/api/nodes/register",
             post(api_control_plane::register_node),
         )
         .route(
-            "/api/control-plane/nodes/{id}/heartbeat",
+            "/api/nodes/{id}/heartbeat",
             post(api_control_plane::node_heartbeat),
         )
         .route(
-            "/api/control-plane/nodes/{id}",
+            "/api/nodes/{id}",
             delete(api_control_plane::deregister_node),
         )
         // ── SSE event stream ──

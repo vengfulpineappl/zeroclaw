@@ -26,10 +26,7 @@ fn require_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode
 }
 
 /// GET /api/control-plane/nodes — list all registered nodes
-pub async fn list_nodes(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+pub async fn list_nodes(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     if let Err(e) = require_auth(&state, &headers) {
         return e.into_response();
     }
@@ -44,11 +41,7 @@ pub async fn list_nodes(
             }))
             .into_response()
         }
-        None => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Control plane not enabled",
-        )
-            .into_response(),
+        None => (StatusCode::SERVICE_UNAVAILABLE, "Control plane not enabled").into_response(),
     }
 }
 
@@ -103,11 +96,7 @@ pub async fn register_node(
                 (StatusCode::CONFLICT, "Node capacity reached").into_response()
             }
         }
-        None => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Control plane not enabled",
-        )
-            .into_response(),
+        None => (StatusCode::SERVICE_UNAVAILABLE, "Control plane not enabled").into_response(),
     }
 }
 
@@ -133,11 +122,7 @@ pub async fn node_heartbeat(
                 (StatusCode::NOT_FOUND, "Node not found").into_response()
             }
         }
-        None => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Control plane not enabled",
-        )
-            .into_response(),
+        None => (StatusCode::SERVICE_UNAVAILABLE, "Control plane not enabled").into_response(),
     }
 }
 
@@ -163,10 +148,6 @@ pub async fn deregister_node(
                 (StatusCode::NOT_FOUND, "Node not found").into_response()
             }
         }
-        None => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Control plane not enabled",
-        )
-            .into_response(),
+        None => (StatusCode::SERVICE_UNAVAILABLE, "Control plane not enabled").into_response(),
     }
 }
