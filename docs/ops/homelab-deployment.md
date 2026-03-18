@@ -8,6 +8,13 @@ This guide provides a complete path from source to production in a Proxmox homel
 - WhatsApp Business API credentials (`phone_number_id`, `access_token`, `app_secret`)
 - GitHub repository with secrets configured
 
+## 1.1 Optional helper script
+A helper script is included in `scripts/deploy/lxc-deploy.sh` to bootstrap a container and start ZeroClaw.
+
+```bash
+bash scripts/deploy/lxc-deploy.sh 100
+```
+
 ## 2. LXC setup (Debian 13 / Ubuntu 24)
 
 1. Create container:
