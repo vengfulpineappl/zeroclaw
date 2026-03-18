@@ -1,0 +1,74 @@
+name: Homelab Auto Deploy
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  ci:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Ensure web/dist placeholder exists
+        run: mkdir -p web/dist && touch web/dist/.gitkeep
+
+      - name: Run formatter check
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy check
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Install cargo-nextest
+        run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+
+      - name: Run tests
+        run: cargo nextest run --locked
+
+      - name: Build release artifact
+        run: cargo build --release
+
+  deploy:
+    name: Deploy to Homelab LXC
+    runs-on: ubuntu-latest
+    needs: ci
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.HOMELAB_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo -e "Host homelab-target\n  HostName ${{ secrets.HOMELAB_SSH_HOST }}\n  User ${{ secrets.HOMELAB_SSH_USER }}\n  Port ${{ secrets.HOMELAB_SSH_PORT || '22' }}\n  IdentityFile ~/.ssh/id_rsa\n  StrictHostKeyChecking no\n  UserKnownHostsFile=/dev/null\n" > ~/.ssh/config
+
+      - name: Copy zero claw binary to homelab
+        run: |
+          scp -o StrictHostKeyChecking=no target/release/zeroclaw homelab-target:/opt/zeroclaw/zeroclaw
+          ssh homelab-target 'sudo chown root:root /opt/zeroclaw/zeroclaw && sudo chmod 755 /opt/zeroclaw/zeroclaw'
+
+      - name: Restart zeroclaw service
+        run: ssh homelab-target 'sudo systemctl restart zeroclaw && sudo systemctl status zeroclaw --no-pager'
