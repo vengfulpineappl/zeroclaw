@@ -68,13 +68,18 @@ pct exec 100 -- systemctl enable --now zeroclaw
 
 ## 4. Cloudflare Tunnel
 
-1. Install `cloudflared` and login.
-2. Create tunnel:
+1. Install `cloudflared` in the container:
    ```bash
+   pct exec 100 -- bash -lc "curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o /tmp/cloudflared.deb && apt-get update -qq && apt-get install -y /tmp/cloudflared.deb"
+   ```
+2. Login and create tunnel (interactive):
+   ```bash
+   pct exec 100 -- cloudflared login
    pct exec 100 -- cloudflared tunnel create zeroclaw
    ```
 3. Configure route (example):
-   ```yaml
+   ```bash
+   cat > /etc/cloudflared/config.yml <<'EOF'
    tunnel: <TUNNEL-ID>
    credentials-file: /etc/cloudflared/<tunnel>.json
 
@@ -82,9 +87,33 @@ pct exec 100 -- systemctl enable --now zeroclaw
      - hostname: zeroclaw.example.com
        service: http://127.0.0.1:8080
      - service: http_status:404
+   EOF
    ```
-4. Run tunnel as service and verify.
+4. Run cloudflared as service:
+   ```bash
+   pct exec 100 -- cloudflared service install --config /etc/cloudflared/config.yml
+   pct exec 100 -- systemctl enable --now cloudflared
+   pct exec 100 -- systemctl status cloudflared
+   ```
+5. Verify connectivity:
+   - `curl -f https://zeroclaw.example.com/health`
+   - `cloudflared tunnel list`
 
+## 5. WhatsApp channel configuration (Gateway Webhook mode)
+
+`config.toml`:
+
+```toml
+[channels_config.whatsapp]
+access_token = "EAAB..."
+phone_number_id = "123456789012345"
+verify_token = "your-verify-token"
+app_secret = "your-app-secret"
+allowed_numbers = ["*"]
+
+gateway_host = "0.0.0.0"
+gateway_port = 8080
+```
 ## 5. WhatsApp channel configuration (Gateway Webhook mode)
 
 `config.toml`:

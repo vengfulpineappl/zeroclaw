@@ -25,6 +25,18 @@ pct exec "$LXC_ID" -- bash -lc "apt-get update -qq && apt-get install -y curl gi
 echo "Installing Rust"
 pct exec "$LXC_ID" -- bash -lc "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source /root/.cargo/env"
 
+echo "Installing cloudflared"
+pct exec "$LXC_ID" -- bash -lc "curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o /tmp/cloudflared.deb && apt-get update -qq && apt-get install -y /tmp/cloudflared.deb"
+
+cat <<'EOF' >/tmp/cloudflared.yml
+url: http://127.0.0.1:8080
+hostname: zeroclaw.example.com
+logfile: /var/log/cloudflared.log
+loglevel: info
+EOF
+
+pct exec "$LXC_ID" -- bash -lc "mkdir -p /etc/cloudflared && mv /tmp/cloudflared.yml /etc/cloudflared/config.yml && cloudflared service install || true"
+
 echo "Cloning repo and building ZeroClaw"
 pct exec "$LXC_ID" -- bash -lc "rm -rf /opt/zeroclaw && git clone https://github.com/YOUR-USERNAME/zeroclaw.git /opt/zeroclaw && cd /opt/zeroclaw && /root/.cargo/bin/cargo build --release"
 
