@@ -137,7 +137,12 @@ pub struct Config {
     pub cloud_ops: CloudOpsConfig,
 
     /// Conversational AI agent builder configuration (`[conversational_ai]`).
-    #[serde(default)]
+    ///
+    /// Experimental / future feature — not yet wired into the agent runtime.
+    /// Omitted from generated config files when disabled (the default).
+    /// Existing configs that already contain this section will continue to
+    /// deserialize correctly thanks to `#[serde(default)]`.
+    #[serde(default, skip_serializing_if = "ConversationalAiConfig::is_disabled")]
     pub conversational_ai: ConversationalAiConfig,
 
     /// Managed cybersecurity service configuration (`[security_ops]`).
@@ -4045,7 +4050,8 @@ pub struct ClassificationRule {
 pub struct HeartbeatConfig {
     /// Enable periodic heartbeat pings. Default: `false`.
     pub enabled: bool,
-    /// Interval in minutes between heartbeat pings. Default: `30`.
+    /// Interval in minutes between heartbeat pings. Default: `5`.
+    #[serde(default = "default_heartbeat_interval")]
     pub interval_minutes: u32,
     /// Enable two-phase heartbeat: Phase 1 asks LLM whether to run, Phase 2
     /// executes only when the LLM decides there is work to do. Saves API cost
@@ -4089,6 +4095,10 @@ pub struct HeartbeatConfig {
     pub max_run_history: u32,
 }
 
+fn default_heartbeat_interval() -> u32 {
+    5
+}
+
 fn default_two_phase() -> bool {
     true
 }
@@ -4109,7 +4119,7 @@ impl Default for HeartbeatConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            interval_minutes: 30,
+            interval_minutes: default_heartbeat_interval(),
             two_phase: true,
             message: None,
             target: None,
@@ -5135,6 +5145,10 @@ pub struct OtpConfig {
     /// Domain-category presets expanded into `gated_domains`.
     #[serde(default)]
     pub gated_domain_categories: Vec<String>,
+
+    /// Maximum number of OTP challenge attempts before lockout.
+    #[serde(default = "default_otp_challenge_max_attempts")]
+    pub challenge_max_attempts: u32,
 }
 
 fn default_otp_token_ttl_secs() -> u64 {
@@ -5143,6 +5157,10 @@ fn default_otp_token_ttl_secs() -> u64 {
 
 fn default_otp_cache_valid_secs() -> u64 {
     300
+}
+
+fn default_otp_challenge_max_attempts() -> u32 {
+    3
 }
 
 fn default_otp_gated_actions() -> Vec<String> {
@@ -5165,6 +5183,7 @@ impl Default for OtpConfig {
             gated_actions: default_otp_gated_actions(),
             gated_domains: Vec::new(),
             gated_domain_categories: Vec::new(),
+            challenge_max_attempts: default_otp_challenge_max_attempts(),
         }
     }
 }
@@ -5863,8 +5882,8 @@ fn default_conversational_ai_timeout_secs() -> u64 {
 
 /// Conversational AI agent builder configuration (`[conversational_ai]` section).
 ///
-/// Controls language detection, escalation behavior, conversation limits, and
-/// analytics for conversational agent workflows. Disabled by default.
+/// **Status: Reserved for future use.** This configuration is parsed but not yet
+/// consumed by the runtime. Setting `enabled = true` will produce a startup warning.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ConversationalAiConfig {
     /// Enable conversational AI features. Default: false.
@@ -5894,6 +5913,17 @@ pub struct ConversationalAiConfig {
     /// Optional tool name for RAG-based knowledge base lookup during conversations.
     #[serde(default)]
     pub knowledge_base_tool: Option<String>,
+}
+
+impl ConversationalAiConfig {
+    /// Returns `true` when the feature is disabled (the default).
+    ///
+    /// Used by `#[serde(skip_serializing_if)]` to omit the entire
+    /// `[conversational_ai]` section from newly-generated config files,
+    /// avoiding user confusion over an undocumented / experimental section.
+    pub fn is_disabled(&self) -> bool {
+        !self.enabled
+    }
 }
 
 impl Default for ConversationalAiConfig {
@@ -7036,6 +7066,9 @@ impl Config {
         }
 
         // Security OTP / estop
+        if self.security.otp.challenge_max_attempts == 0 {
+            anyhow::bail!("security.otp.challenge_max_attempts must be greater than 0");
+        }
         if self.security.otp.token_ttl_secs == 0 {
             anyhow::bail!("security.otp.token_ttl_secs must be greater than 0");
         }
@@ -7716,6 +7749,13 @@ impl Config {
         }
 
         set_runtime_proxy_config(self.proxy.clone());
+
+        if self.conversational_ai.enabled {
+            tracing::warn!(
+                "conversational_ai.enabled = true but conversational AI features are not yet \
+                 implemented; this section is reserved for future use and will be ignored"
+            );
+        }
     }
 
     async fn resolve_config_path_for_save(&self) -> Result<PathBuf> {
@@ -8323,7 +8363,7 @@ mod tests {
     async fn heartbeat_config_default() {
         let h = HeartbeatConfig::default();
         assert!(!h.enabled);
-        assert_eq!(h.interval_minutes, 30);
+        assert_eq!(h.interval_minutes, 5);
         assert!(h.message.is_none());
         assert!(h.target.is_none());
         assert!(h.to.is_none());
